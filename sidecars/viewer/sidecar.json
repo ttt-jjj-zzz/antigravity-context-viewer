@@ -1,0 +1,20 @@
+{
+  "command": "node",
+  "args": [
+    "server.js"
+  ],
+  "restart_policy": "always",
+  "display_name": "会话上下文查看器",
+  "description": "实时查看当前对话的上下文、Token 消耗与历史轨迹",
+  "has_web_ui": true,
+  "ui_config": {
+    "display_name": "会话上下文查看器",
+    "views": [
+      {
+        "title": "会话上下文查看器",
+        "path": "/",
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE"
+      }
+    ]
+  }
+}
