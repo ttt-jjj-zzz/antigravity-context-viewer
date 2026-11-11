@@ -11,9 +11,15 @@ English | [简体中文](#简体中文)
 ### 🌟 痛点与背景
 在日常使用 Antigravity 进行长对话或复杂开发时，客户端默认没有直接显示“当前会话消耗了多少上下文 Token / 占模型窗口的百分比”。用户常常不知道当前上下文是否即将耗尽，或者何时该使用 `/compact` 压缩。
 
-**Antigravity Context Viewer** 填补了这一空白：
+更关键的是：**虽然 Gemini 3.8 Flash 模型在 API 层面支持 1M 上下文，但 Antigravity 客户端底层运行时写死了约 250k（256,000 Tokens）的自动压缩线**。如果进度条按 1M 显示，当用到 230k 时只显示 23%，用户误以为还剩 77% 很安全，下一秒就会被客户端突然强制压缩！
+
+**Antigravity Context Viewer** 完美解决了这些痛点：
 * **实时常驻**：直接集成在 Antigravity 2.0 右侧边栏（`Extensions >` 菜单），左边聊天、右边实时更新。
-* **极简仪表盘**：只显示最核心指标——总容量（如 1M）、已用 Token 数量、剩余空间与平滑彩色进度条。
+* **双视角尺度切换**：
+  - **250k 压缩线（推荐默认）**：真实反映距离客户端强制压缩还剩多少空间，提前预警；
+  - **1M 物理上限**：展示 Gemini 模型的全量理论空间；
+  - **200k 尺度**：适配 Claude 3.5 模型。
+* **压缩次数追踪与记忆健康度预警**：从对话开启起，精准统计已经历了几次自动压缩（0次、1次、2次、3次及以上），并给出开启新对话或收尾任务的科学建议。
 * **多会话自动同步**：在左侧切换不同对话时，右侧自动无缝切换并显示对应对话的真实 Token。
 * **100% 本地安全**：仅只读读取本地已生成的日志文件，**不发任何外部网络请求、不修改任何系统代理或环境变量**，彻底杜绝地区限制（Region Not Supported）风险。
 
@@ -23,15 +29,16 @@ English | [简体中文](#简体中文)
 
 ```
 ┌──────────────────────────────────────────────┐
-│  🛰️ Gemini 3.8 Flash           [1M 容量] 200k│
+│  🛰️ Gemini 3.8 Flash         [🔄 压缩 1 次] │
 ├──────────────────────────────────────────────┤
-│  231.4k / 1M                           23.1% │
+│  监控尺度: [250k 压缩线] [1M 上限] [200k]    │
 │                                              │
-│  [██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] │
+│  70.8k / 250k                          28.3% │
+│  [████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] │
 │                                              │
-│  已用: 231,431 Tokens   剩余: 768,569 (76.9%) │
+│  已用: 70,780   剩余: 179,220   已压缩: 1 次 │
 │                                              │
-│  🟢 空间非常充裕，记忆完整无损                │
+│  🟢 已经历 1 次压缩，当前上下文状态良好      │
 └──────────────────────────────────────────────┘
 ```
 
@@ -64,16 +71,14 @@ English | [简体中文](#简体中文)
 ## English
 
 ### 🌟 Overview
-Antigravity Context Viewer is a lightweight sidecar extension designed specifically for the **Google Antigravity 2.0** desktop app. It displays real-time token consumption, current context usage, and a visual progress bar indicating how much of the model's context window (e.g., 1M) is utilized.
+Antigravity Context Viewer is a lightweight sidecar extension designed specifically for the **Google Antigravity 2.0** desktop app. It displays real-time token consumption, compaction count, and a visual progress bar.
 
 ### ✨ Key Features
-- **Minimalist & Clean**: Displays only essential metrics — total window size (1M/200k), used tokens, remaining tokens, and a colored progress bar.
+- **250k Compaction Line vs. 1M Theoretical Limit**: Antigravity runtime triggers auto-compaction around 250k tokens (0x3e800 / 256,000). The extension defaults to the 250k compaction threshold so you get accurate early warnings before context compression occurs.
+- **Compaction Count & Memory Health**: Tracks how many times the conversation has been compacted since inception, advising when it's best to wrap up tasks or spawn a fresh conversation.
 - **Sidecar Integration**: Runs natively in Antigravity's Auxiliary Pane via the `Extensions >` menu.
 - **Dynamic Multi-Session Tracking**: Automatically switches context stats as you navigate between conversations.
-- **Strictly Local & Zero Network Overhead**: Reads local disk logs (`~/.gemini/antigravity/brain/`) only. Zero external requests, zero tampering with proxies or environment variables — completely immune to geo-restriction errors.
-
-### 🚀 Quick Start
-Run `install.bat` on Windows, or execute `install.ps1`. Then restart Antigravity, and find **`会话上下文查看器 (Context Viewer)`** under `Extensions >`.
+- **Strictly Local & Zero Network Overhead**: Reads local disk logs (`~/.gemini/antigravity/brain/`) only. Zero external requests, zero proxy interference — completely immune to geo-restrictions.
 
 ---
 

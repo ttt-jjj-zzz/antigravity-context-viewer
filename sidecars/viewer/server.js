@@ -45,11 +45,12 @@ function getConversationData(targetId, overrideLimit) {
     return {
       id: null,
       usedTokens: 0,
-      totalLimit: 1000000,
-      limitLabel: '1M',
+      totalLimit: 250000,
+      limitLabel: '250k',
       modelName: 'Gemini 3.8 Flash',
       pct: 0,
-      remainingTokens: 1000000
+      remainingTokens: 250000,
+      compactionCount: 0
     };
   }
 
@@ -64,8 +65,9 @@ function getConversationData(targetId, overrideLimit) {
   let latestInput = 0;
   let latestCache = 0;
   let modelName = 'Gemini 3.8 Flash';
-  let totalLimit = 1000000;
-  let limitLabel = '1M';
+  let defaultLimit = 250000;
+  let defaultLabel = '250k';
+  let compactionCount = 0;
 
   try {
     const raw = fs.readFileSync(item.logPath, 'utf8');
@@ -75,16 +77,20 @@ function getConversationData(targetId, overrideLimit) {
       if (!trimmed) continue;
       try {
         const s = JSON.parse(trimmed);
+        // Accurate detection of Antigravity system compaction
+        if (s.type === 'CHECKPOINT' && s.source === 'SYSTEM') {
+          compactionCount++;
+        }
         // Only inspect explicit user settings changes for model detection
         if (s.content && typeof s.content === 'string' && s.content.includes('USER_SETTINGS_CHANGE')) {
           if (s.content.includes('Claude') || s.content.includes('claude')) {
             modelName = 'Claude 3.5';
-            totalLimit = 200000;
-            limitLabel = '200k';
+            defaultLimit = 200000;
+            defaultLabel = '200k';
           } else if (s.content.includes('Gemini') || s.content.includes('gemini')) {
             modelName = 'Gemini 3.8 Flash';
-            totalLimit = 1000000;
-            limitLabel = '1M';
+            defaultLimit = 250000;
+            defaultLabel = '250k';
           }
         }
         if (s.input_tokens || s.cache_read_tokens) {
@@ -95,6 +101,9 @@ function getConversationData(targetId, overrideLimit) {
     }
   } catch (e) {}
 
+  let totalLimit = defaultLimit;
+  let limitLabel = defaultLabel;
+
   if (overrideLimit === '200k') {
     totalLimit = 200000;
     limitLabel = '200k';
@@ -102,7 +111,11 @@ function getConversationData(targetId, overrideLimit) {
   } else if (overrideLimit === '1m' || overrideLimit === '1M') {
     totalLimit = 1000000;
     limitLabel = '1M';
-    modelName = 'Gemini (1M)';
+    modelName = 'Gemini (1M 上限)';
+  } else if (overrideLimit === '250k') {
+    totalLimit = 250000;
+    limitLabel = '250k';
+    modelName = 'Gemini (250k 压缩线)';
   }
 
   const usedTokens = latestInput + latestCache;
@@ -117,6 +130,7 @@ function getConversationData(targetId, overrideLimit) {
     modelName,
     pct,
     remainingTokens,
+    compactionCount,
     latestInput,
     latestCache
   };
@@ -128,7 +142,7 @@ function getHtml() {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>上下文用量监控</title>
+<title>会话上下文监控</title>
 <style>
   :root {
     --bg: #f8fafc;
@@ -193,6 +207,25 @@ function getHtml() {
     align-items: center;
     gap: 6px;
   }
+  .compact-pill {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.3s;
+  }
+  .limit-bar-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .limit-label-hint {
+    font-size: 11px;
+    color: var(--sub);
+  }
   .limit-switch {
     display: flex;
     gap: 4px;
@@ -209,6 +242,7 @@ function getHtml() {
     padding: 3px 8px;
     border-radius: 6px;
     cursor: pointer;
+    transition: all 0.2s;
   }
   .switch-btn.active {
     background: var(--card);
@@ -286,29 +320,40 @@ function getHtml() {
     border: 1px solid rgba(22, 163, 74, 0.2);
     color: var(--green);
     font-weight: 600;
+    line-height: 1.4;
   }
 </style>
 </head>
 <body>
 
 <div class="card">
-  <!-- Top: Model name & Limit toggle -->
+  <!-- Top: Model name & Compaction Badge -->
   <div class="header-row">
     <div class="model-pill">
       <span>🛰️</span>
       <span id="modelLabel">Gemini 3.8 Flash</span>
     </div>
+    <div class="compact-pill" id="compactPill">
+      <span>🔄</span>
+      <span id="compactCountText">未发生压缩 (0次)</span>
+    </div>
+  </div>
+
+  <!-- Scale switcher: 250k (Compaction Line) / 1M (Model Limit) / 200k (Claude) -->
+  <div class="limit-bar-row">
+    <span class="limit-label-hint">监控尺度:</span>
     <div class="limit-switch">
-      <button class="switch-btn active" id="btn1M" onclick="setLimit('1m')">1M 容量</button>
+      <button class="switch-btn active" id="btn250k" onclick="setLimit('250k')">250k 压缩线</button>
+      <button class="switch-btn" id="btn1M" onclick="setLimit('1m')">1M 上限</button>
       <button class="switch-btn" id="btn200k" onclick="setLimit('200k')">200k</button>
     </div>
   </div>
 
-  <!-- Numbers: 218.4k / 1M    21.8% -->
+  <!-- Big Numbers: 70.8k / 250k    28.3% -->
   <div class="stat-row">
     <div class="used-display">
       <span class="used-val" id="usedVal">0k</span>
-      <span class="total-val">/ <span id="limitVal">1M</span></span>
+      <span class="total-val">/ <span id="limitVal">250k</span></span>
     </div>
     <div class="pct-tag" id="pctVal">0%</div>
   </div>
@@ -320,13 +365,14 @@ function getHtml() {
 
   <!-- Exact details -->
   <div class="detail-row">
-    <span>已用: <strong id="exactUsed">0</strong> Tokens</span>
-    <span>剩余: <strong id="exactRemain">1,000,000</strong> (<span id="remainPct">100%</span>)</span>
+    <span>已用: <strong id="exactUsed">0</strong></span>
+    <span>剩余: <strong id="exactRemain">250,000</strong> (<span id="remainPct">100%</span>)</span>
+    <span>已压缩: <strong id="exactCompacts">0 次</strong></span>
   </div>
 
   <!-- Status banner -->
   <div class="status-cue" id="statusCue">
-    🟢 空间非常充裕，记忆完整无损
+    🟢 空间充裕，记忆完整无损（0次压缩）
   </div>
 </div>
 
@@ -342,9 +388,11 @@ function getHtml() {
 
   const urlParams = new URLSearchParams(window.location.search);
   const convId = urlParams.get('conversationId') || 'auto';
-  let overrideLimit = '1m'; // Default 1M for Gemini
+  let currentLimit = '250k'; // Default to 250k compaction line for accurate warning
 
   const modelLabel = document.getElementById('modelLabel');
+  const compactPill = document.getElementById('compactPill');
+  const compactCountText = document.getElementById('compactCountText');
   const usedVal = document.getElementById('usedVal');
   const limitVal = document.getElementById('limitVal');
   const pctVal = document.getElementById('pctVal');
@@ -352,12 +400,15 @@ function getHtml() {
   const exactUsed = document.getElementById('exactUsed');
   const exactRemain = document.getElementById('exactRemain');
   const remainPct = document.getElementById('remainPct');
+  const exactCompacts = document.getElementById('exactCompacts');
   const statusCue = document.getElementById('statusCue');
+  const btn250k = document.getElementById('btn250k');
   const btn1M = document.getElementById('btn1M');
   const btn200k = document.getElementById('btn200k');
 
   function setLimit(lim) {
-    overrideLimit = lim;
+    currentLimit = lim;
+    btn250k.classList.toggle('active', lim === '250k');
     btn1M.classList.toggle('active', lim === '1m');
     btn200k.classList.toggle('active', lim === '200k');
     update();
@@ -372,13 +423,13 @@ function getHtml() {
   async function update() {
     try {
       let q = '?conversationId=' + encodeURIComponent(convId);
-      if (overrideLimit) q += '&limit=' + overrideLimit;
+      if (currentLimit) q += '&limit=' + currentLimit;
       const res = await fetch('/api/context' + q);
       const data = await res.json();
       if (!data) return;
 
       modelLabel.textContent = data.modelName || 'Gemini 3.8 Flash';
-      limitVal.textContent = data.limitLabel || '1M';
+      limitVal.textContent = data.limitLabel || '250k';
 
       usedVal.textContent = formatK(data.usedTokens || 0);
       pctVal.textContent = data.pct + '%';
@@ -388,27 +439,71 @@ function getHtml() {
       exactRemain.textContent = (data.remainingTokens || 0).toLocaleString();
       remainPct.textContent = (100 - data.pct).toFixed(1) + '%';
 
+      const compacts = data.compactionCount || 0;
+      exactCompacts.textContent = compacts + ' 次';
+
+      // Update Compaction Pill styling
+      if (compacts === 0) {
+        compactCountText.textContent = '记忆未压缩 (0次)';
+        compactPill.style.background = 'rgba(22, 163, 74, 0.1)';
+        compactPill.style.color = 'var(--green)';
+      } else if (compacts === 1) {
+        compactCountText.textContent = '已压缩 1 次 (轻度)';
+        compactPill.style.background = 'rgba(37, 99, 235, 0.1)';
+        compactPill.style.color = 'var(--primary)';
+      } else if (compacts === 2) {
+        compactCountText.textContent = '已压缩 2 次 (建议收尾)';
+        compactPill.style.background = 'rgba(217, 119, 6, 0.12)';
+        compactPill.style.color = 'var(--yellow)';
+      } else {
+        compactCountText.textContent = '已压缩 ' + compacts + ' 次 (建议新开)';
+        compactPill.style.background = 'rgba(220, 38, 38, 0.12)';
+        compactPill.style.color = 'var(--red)';
+      }
+
+      // Progress bar colors
       if (data.pct < 60) {
         pctVal.style.color = 'var(--green)';
         barFill.style.background = 'var(--green)';
-        statusCue.style.color = 'var(--green)';
-        statusCue.style.background = 'rgba(22, 163, 74, 0.08)';
-        statusCue.style.borderColor = 'rgba(22, 163, 74, 0.2)';
-        statusCue.textContent = '🟢 空间非常充裕，记忆完整无损';
       } else if (data.pct < 85) {
         pctVal.style.color = 'var(--yellow)';
         barFill.style.background = 'var(--yellow)';
-        statusCue.style.color = 'var(--yellow)';
-        statusCue.style.background = 'rgba(217, 119, 6, 0.08)';
-        statusCue.style.borderColor = 'rgba(217, 119, 6, 0.2)';
-        statusCue.textContent = '🟡 对话已偏长，可输入 /compact 压缩上下文';
       } else {
         pctVal.style.color = 'var(--red)';
         barFill.style.background = 'var(--red)';
+      }
+
+      // Dynamic guidance banner
+      if (compacts >= 3) {
         statusCue.style.color = 'var(--red)';
         statusCue.style.background = 'rgba(220, 38, 38, 0.08)';
         statusCue.style.borderColor = 'rgba(220, 38, 38, 0.2)';
-        statusCue.textContent = '🔴 上下文即将耗尽，建议开启新对话';
+        statusCue.textContent = '🔴 已经历 ' + compacts + ' 次压缩，记忆衰减严重，强烈建议开启新对话！';
+      } else if (compacts === 2) {
+        statusCue.style.color = 'var(--yellow)';
+        statusCue.style.background = 'rgba(217, 119, 6, 0.08)';
+        statusCue.style.borderColor = 'rgba(217, 119, 6, 0.2)';
+        statusCue.textContent = '🟠 已经历 2 次压缩（记忆进入衰退期），建议收尾当前任务并开新对话';
+      } else if (data.pct >= 88) {
+        statusCue.style.color = 'var(--red)';
+        statusCue.style.background = 'rgba(220, 38, 38, 0.08)';
+        statusCue.style.borderColor = 'rgba(220, 38, 38, 0.2)';
+        statusCue.textContent = '🔴 距 250k 压缩警戒线不足 12%，即将触发自动压缩';
+      } else if (data.pct >= 70) {
+        statusCue.style.color = 'var(--yellow)';
+        statusCue.style.background = 'rgba(217, 119, 6, 0.08)';
+        statusCue.style.borderColor = 'rgba(217, 119, 6, 0.2)';
+        statusCue.textContent = '🟡 上下文已消耗超 70%，可输入 /compact 提前整理记忆';
+      } else if (compacts === 1) {
+        statusCue.style.color = 'var(--green)';
+        statusCue.style.background = 'rgba(22, 163, 74, 0.08)';
+        statusCue.style.borderColor = 'rgba(22, 163, 74, 0.2)';
+        statusCue.textContent = '🟢 已经历 1 次压缩，当前上下文状态良好';
+      } else {
+        statusCue.style.color = 'var(--green)';
+        statusCue.style.background = 'rgba(22, 163, 74, 0.08)';
+        statusCue.style.borderColor = 'rgba(22, 163, 74, 0.2)';
+        statusCue.textContent = '🟢 空间非常充裕，记忆完整无损（未压缩）';
       }
     } catch (e) {}
   }
