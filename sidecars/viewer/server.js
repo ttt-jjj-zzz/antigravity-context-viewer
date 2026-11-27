@@ -122,6 +122,11 @@ function getConversationData(targetId, overrideLimit) {
   const activeScale = SCALE_CONFIG[normOverride] ? normOverride : defaultScale;
   const { limit: totalLimit, label: limitLabel } = SCALE_CONFIG[activeScale];
 
+  // Keep model label aligned with active scale (200k -> Claude, 500k/1M -> Gemini)
+  const displayClaude = activeScale === '200k';
+  modelName = displayClaude ? 'Claude' : 'Gemini';
+  modelFamily = displayClaude ? 'claude' : 'gemini';
+
   const usedTokens = latestInput + latestCache;
   const pct = Math.min(100, Math.round((usedTokens / totalLimit) * 1000) / 10);
   const remainingTokens = Math.max(0, totalLimit - usedTokens);

@@ -632,7 +632,7 @@
       const activeScale = data.activeScale || '1m';
       syncButtons(activeScale);
 
-      const isClaude = data.modelFamily === 'claude';
+      const isClaude = activeScale === '200k';
       modelLabel.textContent = isClaude ? 'Claude' : 'Gemini';
       modelLabel.classList.toggle('claude-text', isClaude);
       modelIcon.innerHTML = isClaude ? CLAUDE_SVG : GEMINI_SVG;
@@ -689,9 +689,9 @@
       } else if (activeScale === '1m' && data.pct >= 50) {
         applyBanner('amber', ICON_INFO, '已过 500k 参考线，可按需输入 /compact 整理记忆');
       } else if (activeScale !== '1m' && data.pct >= 88) {
-        applyBanner('red', ICON_WARN, '接近 ' + data.limitLabel + ' 刻度上限，可切回 1M 或使用 /compact');
+        applyBanner('red', ICON_WARN, '接近 ' + data.limitLabel + ' 刻度上限');
       } else if (activeScale !== '1m' && data.pct >= 70) {
-        applyBanner('amber', ICON_INFO, '当前刻度已消耗超 70%，可提前输入 /compact');
+        applyBanner('amber', ICON_INFO, '当前刻度已消耗超 70%，请注意上下文余量');
       } else if (compacts === 1) {
         applyBanner('blue', ICON_INFO, '已经历 1 次压缩，当前上下文状态良好');
       } else {
