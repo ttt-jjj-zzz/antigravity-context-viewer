@@ -19,7 +19,7 @@ English | [简体中文](#简体中文)
   - **1M 上限（Gemini 默认）**：对应 Gemini 4 / 3.8 系列 1M 理论总窗口，进度条 50%（500k）处带有参考刻度线；
   - **500k**：对应 Antigravity 桌面端针对 Gemini 4 翻倍后的活跃警戒刻度；
   - **200k**：自动适配 Claude 4.6 / 3.5 系列模型。
-* **真实模型自动识别**：自动解析当前会话切换的最新模型（如 `Gemini 4 Hydrogen (High)`、`Claude Opus 4.6`），切到不同对话时自动匹配对应默认刻度。
+* **简洁模型识别**：自动解析当前对话所选系列，简洁显示 **`Gemini`** 或 **`Claude`**，并自动匹配对应默认刻度。
 * **压缩次数追踪与记忆健康度预警**：从对话开启起，精准统计已经历了几次自动压缩（0次、1次、2次、3次及以上），并给出开启新对话或收尾任务的科学建议。
 * **多会话自动同步**：在左侧切换不同对话时，右侧自动无缝切换并显示对应对话的真实 Token。
 * **100% 本地安全**：仅只读读取本地已生成的日志文件，**不发任何外部网络请求、不修改任何系统代理或环境变量**，彻底杜绝地区限制（Region Not Supported）风险。
@@ -30,16 +30,15 @@ English | [简体中文](#简体中文)
 
 ```
 ┌──────────────────────────────────────────────┐
-│  🛰️ Gemini 4 Hydrogen (High)  [🔄 记忆未压缩] │
+│  ✦ Gemini                    [ 1M | 500k | 200k ] │
 ├──────────────────────────────────────────────┤
-│  上限刻度: [1M 上限] [500k] [200k]           │
-│                                              │
 │  436.4k / 1M                           43.6% │
 │  [█████████████████░░░|░░░░░░░░░░░░░░░░░░░░] │
+│  0                   500k                 1M │
 │                                              │
-│  已用: 436,409  剩余: 563,591  已压缩: 0 次   │
+│  [ 已用 436,409 ] [ 剩余 563,591 ] [ 压缩 0次 ] │
 │                                              │
-│  🟢 空间非常充裕，记忆完整无损（未压缩）      │
+│  ✔ 记忆完整无损，空间非常充裕                │
 └──────────────────────────────────────────────┘
 ```
 
@@ -76,7 +75,7 @@ Antigravity Context Viewer is a lightweight sidecar extension designed specifica
 
 ### ✨ Key Features
 - **Flexible Context Scales (`1M` / `500k` / `200k`)**: Defaults to the native `1M` limit for Gemini 4 models (with a 500k midpoint reference marker) and auto-switches to `200k` for Claude models, with one-click manual overrides.
-- **Accurate Model Detection**: Automatically parses the active model selection (e.g., `Gemini 4 Hydrogen (High)`, `Claude Opus 4.6`) from explicit user settings changes.
+- **Clean Google Material 3 UI**: Styled after Google Gemini / Material Design 3 with tonal surfaces, segmented scale switches (`1M` / `500k` / `200k`), and clean `Gemini` / `Claude` model detection.
 - **Compaction Count & Memory Health**: Tracks how many times the conversation has been compacted since inception, advising when it's best to wrap up tasks or spawn a fresh conversation.
 - **Sidecar Integration**: Runs natively in Antigravity's Auxiliary Pane via the `Extensions >` menu.
 - **Dynamic Multi-Session Tracking**: Automatically switches context stats as you navigate between conversations.
