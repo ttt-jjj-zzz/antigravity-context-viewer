@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>会话上下文监控</title>
+<style>
+  :root {
+    --bg: #f3f6fc;
+    --card: rgba(255, 255, 255, 0.92);
+    --card-border: rgba(66, 133, 244, 0.16);
+    --fg: #1f1f1f;
+    --sub: #5f6368;
+    --track: #e4e9f2;
+    --pill-bg: rgba(240, 244, 249, 0.95);
+
+    --g-blue: #4285f4;
+    --g-red: #ea4335;
+    --g-yellow: #fbbc05;
+    --g-green: #34a853;
+    --g-purple: #9b72cb;
+
+    --tile-blue-bg: linear-gradient(135deg, rgba(66, 133, 244, 0.10), rgba(66, 133, 244, 0.03));
+    --tile-blue-bd: rgba(66, 133, 244, 0.22);
+    --tile-green-bg: linear-gradient(135deg, rgba(52, 168, 83, 0.10), rgba(52, 168, 83, 0.03));
+    --tile-green-bd: rgba(52, 168, 83, 0.22);
+    --tile-purple-bg: linear-gradient(135deg, rgba(155, 114, 203, 0.11), rgba(217, 101, 112, 0.04));
+    --tile-purple-bd: rgba(155, 114, 203, 0.24);
+
+    --shadow: 0 10px 30px rgba(66, 133, 244, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1117;
+      --card: rgba(26, 28, 35, 0.92);
+      --card-border: rgba(138, 180, 248, 0.16);
+      --fg: #eef0f4;
+      --sub: #9aa0a6;
+      --track: #2a2d38;
+      --pill-bg: rgba(38, 41, 52, 0.9);
+
+      --tile-blue-bg: linear-gradient(135deg, rgba(66, 133, 244, 0.16), rgba(66, 133, 244, 0.05));
+      --tile-blue-bd: rgba(66, 133, 244, 0.28);
+      --tile-green-bg: linear-gradient(135deg, rgba(52, 168, 83, 0.16), rgba(52, 168, 83, 0.05));
+      --tile-green-bd: rgba(52, 168, 83, 0.28);
+      --tile-purple-bg: linear-gradient(135deg, rgba(155, 114, 203, 0.18), rgba(217, 101, 112, 0.06));
+      --tile-purple-bd: rgba(155, 114, 203, 0.30);
+
+      --shadow: 0 14px 36px rgba(0, 0, 0, 0.45), 0 0 24px rgba(66, 133, 244, 0.08);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0f1117;
+    --card: rgba(26, 28, 35, 0.92);
+    --card-border: rgba(138, 180, 248, 0.16);
+    --fg: #eef0f4;
+    --sub: #9aa0a6;
+    --track: #2a2d38;
+    --pill-bg: rgba(38, 41, 52, 0.9);
+
+    --tile-blue-bg: linear-gradient(135deg, rgba(66, 133, 244, 0.16), rgba(66, 133, 244, 0.05));
+    --tile-blue-bd: rgba(66, 133, 244, 0.28);
+    --tile-green-bg: linear-gradient(135deg, rgba(52, 168, 83, 0.16), rgba(52, 168, 83, 0.05));
+    --tile-green-bd: rgba(52, 168, 83, 0.28);
+    --tile-purple-bg: linear-gradient(135deg, rgba(155, 114, 203, 0.18), rgba(217, 101, 112, 0.06));
+    --tile-purple-bd: rgba(155, 114, 203, 0.30);
+
+    --shadow: 0 14px 36px rgba(0, 0, 0, 0.45), 0 0 24px rgba(66, 133, 244, 0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(at 10% 10%, rgba(66, 133, 244, 0.14) 0px, transparent 50%),
+      radial-gradient(at 90% 15%, rgba(234, 67, 53, 0.10) 0px, transparent 45%),
+      radial-gradient(at 85% 85%, rgba(52, 168, 83, 0.10) 0px, transparent 50%),
+      radial-gradient(at 15% 85%, rgba(251, 188, 5, 0.10) 0px, transparent 45%);
+    color: var(--fg);
+    font-family: "Google Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 16px;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .card {
+    position: relative;
+    background: var(--card);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--card-border);
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+
+  /* Google 4-Color Signature Top Strip */
+  .google-strip {
+    height: 4px;
+    width: 100%;
+    background: linear-gradient(90deg, #4285f4 0%, #ea4335 33%, #fbbc05 66%, #34a853 100%);
+  }
+
+  .card-body {
+    padding: 18px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  /* Header */
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .model-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px 6px 10px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, rgba(66, 133, 244, 0.12), rgba(155, 114, 203, 0.12), rgba(217, 101, 112, 0.10));
+    border: 1px solid rgba(66, 133, 244, 0.22);
+  }
+
+  .model-icon {
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .model-name {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    background: linear-gradient(90deg, #1a73e8, #8e54e9, #d96570);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .model-name.claude-text {
+    background: linear-gradient(90deg, #d97757, #e05a47);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #34a853;
+    box-shadow: 0 0 8px rgba(52, 168, 83, 0.8);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.85); }
+  }
+
+  /* Vibrant Google Segmented Control */
+  .segmented-group {
+    display: inline-flex;
+    align-items: center;
+    background: var(--pill-bg);
+    padding: 3px;
+    border-radius: 9999px;
+    border: 1px solid var(--card-border);
+    gap: 2px;
+  }
+
+  .seg-btn {
+    border: none;
+    background: transparent;
+    color: var(--sub);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .seg-btn:hover:not(.active) {
+    color: var(--fg);
+  }
+
+  .seg-btn.active {
+    background: linear-gradient(135deg, #4285f4 0%, #6c63ff 60%, #9b72cb 100%);
+    color: #ffffff;
+    box-shadow: 0 3px 10px rgba(66, 133, 244, 0.35);
+  }
+
+  /* Hero Section */
+  .hero-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .hero-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .hero-numbers {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  .used-val {
+    font-size: 38px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+    background: linear-gradient(135deg, #1a73e8 0%, #8e54e9 55%, #ea4335 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    line-height: 1.05;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .used-val {
+      background: linear-gradient(135deg, #8ab4f8 0%, #c58af9 55%, #f28b82 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+  }
+
+  :root[data-theme="dark"] .used-val {
+    background: linear-gradient(135deg, #8ab4f8 0%, #c58af9 55%, #f28b82 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .limit-val {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--sub);
+  }
+
+  .pct-pill {
+    font-size: 20px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    padding: 4px 12px;
+    border-radius: 12px;
+    background: rgba(66, 133, 244, 0.12);
+    color: #1a73e8;
+    transition: all 0.3s;
+  }
+
+  /* Shimmering Colorful Google Progress Bar */
+  .progress-container {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .bar-track {
+    position: relative;
+    height: 14px;
+    background: var(--track);
+    border-radius: 9999px;
+    overflow: hidden;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
+  }
+
+  .bar-fill {
+    position: relative;
+    height: 100%;
+    width: 0%;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, #4285f4 0%, #34a853 35%, #fbbc05 70%, #9b72cb 100%);
+    background-size: 200% 100%;
+    box-shadow: 0 0 14px rgba(66, 133, 244, 0.45);
+    transition: width 0.5s cubic-bezier(0.2, 0, 0, 1);
+    animation: gradientMove 4s linear infinite;
+  }
+
+  @keyframes gradientMove {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+  }
+
+  .bar-tick {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    transform: translateX(-50%);
+    background: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.25);
+    pointer-events: none;
+  }
+
+  .bar-scale-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--sub);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Colorful Google Metric Tiles */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .metric-tile {
+    border-radius: 16px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    border: 1px solid transparent;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .metric-tile:hover {
+    transform: translateY(-1px);
+  }
+
+  .tile-blue {
+    background: var(--tile-blue-bg);
+    border-color: var(--tile-blue-bd);
+  }
+
+  .tile-green {
+    background: var(--tile-green-bg);
+    border-color: var(--tile-green-bd);
+  }
+
+  .tile-purple {
+    background: var(--tile-purple-bg);
+    border-color: var(--tile-purple-bd);
+  }
+
+  .tile-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tile-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .metric-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--sub);
+    white-space: nowrap;
+  }
+
+  .metric-value {
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Status Banner */
+  .status-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 14px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(52, 168, 83, 0.12), rgba(66, 133, 244, 0.08));
+    border: 1px solid rgba(52, 168, 83, 0.25);
+    color: #137333;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.4;
+    transition: all 0.3s;
+  }
+
+  .status-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="google-strip"></div>
+  <div class="card-body">
+    <!-- Header -->
+    <div class="header-row">
+      <div class="model-badge">
+        <div class="model-icon" id="modelIcon"></div>
+        <span class="model-name" id="modelLabel">Gemini</span>
+        <span class="live-dot" title="实时监控中"></span>
+      </div>
+      <div class="segmented-group" role="tablist" aria-label="上下文刻度">
+        <button class="seg-btn active" id="btn1M" onclick="setLimit('1m')">1M</button>
+        <button class="seg-btn" id="btn500k" onclick="setLimit('500k')">500k</button>
+        <button class="seg-btn" id="btn200k" onclick="setLimit('200k')">200k</button>
+      </div>
+    </div>
+
+    <!-- Hero Usage -->
+    <div class="hero-section">
+      <div class="hero-row">
+        <div class="hero-numbers">
+          <span class="used-val" id="usedVal">0</span>
+          <span class="limit-val">/ <span id="limitVal">1M</span></span>
+        </div>
+        <div class="pct-pill" id="pctVal">0%</div>
+      </div>
+
+      <div class="progress-container">
+        <div class="bar-track">
+          <div class="bar-fill" id="barFill"></div>
+          <div class="bar-tick" id="barTick" title="500k 参考线"></div>
+        </div>
+        <div class="bar-scale-labels">
+          <span>0</span>
+          <span id="midLabel">500k</span>
+          <span id="endLabel">1M</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Colorful Google Metric Tiles -->
+    <div class="metrics-grid">
+      <div class="metric-tile tile-blue">
+        <div class="tile-head">
+          <span class="tile-dot" style="background:#4285f4"></span>
+          <span class="metric-label">已用 Tokens</span>
+        </div>
+        <span class="metric-value" id="exactUsed">0</span>
+      </div>
+      <div class="metric-tile tile-green">
+        <div class="tile-head">
+          <span class="tile-dot" style="background:#34a853"></span>
+          <span class="metric-label">剩余额度</span>
+        </div>
+        <span class="metric-value" id="exactRemain">1,000,000</span>
+      </div>
+      <div class="metric-tile tile-purple" id="compactTile">
+        <div class="tile-head">
+          <span class="tile-dot" id="compactDot" style="background:#9b72cb"></span>
+          <span class="metric-label">自动压缩</span>
+        </div>
+        <span class="metric-value" id="exactCompacts">0 次</span>
+      </div>
+    </div>
+
+    <!-- Status Banner -->
+    <div class="status-banner" id="statusBanner">
+      <div class="status-icon" id="statusIcon"></div>
+      <span id="statusText">正在同步上下文数据...</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  const GEMINI_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none"><defs><linearGradient id="gGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4285F4"/><stop offset="45%" stop-color="#9B72CB"/><stop offset="75%" stop-color="#D96570"/><stop offset="100%" stop-color="#FBBC05"/></linearGradient></defs><path d="M12 1.5C12.4 7.2 16.8 11.6 22.5 12C16.8 12.4 12.4 16.8 12 22.5C11.6 16.8 7.2 12.4 1.5 12C7.2 11.6 11.6 7.2 12 1.5Z" fill="url(#gGrad)"/></svg>';
+  const CLAUDE_SVG = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none"><path d="M12 2.5L14.2 8.8L20.5 6.8L16.3 12L20.5 17.2L14.2 15.2L12 21.5L9.8 15.2L3.5 17.2L7.7 12L3.5 6.8L9.8 8.8L12 2.5Z" fill="#D97757"/></svg>';
+
+  const ICON_CHECK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
+  const ICON_INFO = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>';
+  const ICON_WARN = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>';
+
+  function parseLuminance(colorStr) {
+    if (!colorStr) return null;
+    const hex = colorStr.trim().match(/^#([0-9a-f]{6})$/i);
+    if (hex) {
+      const n = parseInt(hex[1], 16);
+      const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+      return 0.299 * r + 0.587 * g + 0.114 * b;
+    }
+    const rgb = colorStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+    if (rgb) {
+      return 0.299 * Number(rgb[1]) + 0.587 * Number(rgb[2]) + 0.114 * Number(rgb[3]);
+    }
+    return null;
+  }
+
+  function isDarkMode() {
+    const attr = document.documentElement.getAttribute('data-theme');
+    if (attr === 'dark') return true;
+    if (attr === 'light') return false;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'theme-change') {
+      const payload = event.data.payload || {};
+      const kind = payload.themeKind;
+      if (kind && /dark/i.test(kind)) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        update();
+        return;
+      }
+      if (kind && /light/i.test(kind)) {
+        document.documentElement.setAttribute('data-theme', 'light');
+        update();
+        return;
+      }
+      const vars = payload.cssVariables || {};
+      const bg = vars['--vscode-editor-background'] || vars['--bg'] || vars['background'];
+      const lum = parseLuminance(bg);
+      if (lum !== null) {
+        document.documentElement.setAttribute('data-theme', lum < 128 ? 'dark' : 'light');
+        update();
+      }
+    }
+  });
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const convId = urlParams.get('conversationId') || 'auto';
+  let manualLimit = null;
+  let lastConvId = null;
+
+  const modelIcon = document.getElementById('modelIcon');
+  const modelLabel = document.getElementById('modelLabel');
+  const usedVal = document.getElementById('usedVal');
+  const limitVal = document.getElementById('limitVal');
+  const pctVal = document.getElementById('pctVal');
+  const barFill = document.getElementById('barFill');
+  const barTick = document.getElementById('barTick');
+  const midLabel = document.getElementById('midLabel');
+  const endLabel = document.getElementById('endLabel');
+  const exactUsed = document.getElementById('exactUsed');
+  const exactRemain = document.getElementById('exactRemain');
+  const exactCompacts = document.getElementById('exactCompacts');
+  const compactDot = document.getElementById('compactDot');
+  const statusBanner = document.getElementById('statusBanner');
+  const statusIcon = document.getElementById('statusIcon');
+  const statusText = document.getElementById('statusText');
+  const btn1M = document.getElementById('btn1M');
+  const btn500k = document.getElementById('btn500k');
+  const btn200k = document.getElementById('btn200k');
+
+  function setLimit(lim) {
+    manualLimit = lim;
+    syncButtons(lim);
+    update();
+  }
+
+  function syncButtons(activeScale) {
+    btn1M.classList.toggle('active', activeScale === '1m');
+    btn500k.classList.toggle('active', activeScale === '500k');
+    btn200k.classList.toggle('active', activeScale === '200k');
+    if (activeScale === '1m') {
+      barTick.style.display = 'block';
+      midLabel.textContent = '500k';
+      endLabel.textContent = '1M';
+    } else if (activeScale === '500k') {
+      barTick.style.display = 'none';
+      midLabel.textContent = '250k';
+      endLabel.textContent = '500k';
+    } else {
+      barTick.style.display = 'none';
+      midLabel.textContent = '100k';
+      endLabel.textContent = '200k';
+    }
+  }
+
+  function formatK(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(2) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+    return n.toString();
+  }
+
+  function applyBanner(tone, iconSvg, text) {
+    const dark = isDarkMode();
+    if (tone === 'red') {
+      statusBanner.style.background = dark ? 'rgba(234, 67, 53, 0.16)' : 'linear-gradient(135deg, rgba(234, 67, 53, 0.12), rgba(217, 48, 37, 0.06))';
+      statusBanner.style.borderColor = dark ? 'rgba(242, 139, 130, 0.35)' : 'rgba(234, 67, 53, 0.28)';
+      statusBanner.style.color = dark ? '#f28b82' : '#c5221f';
+    } else if (tone === 'amber') {
+      statusBanner.style.background = dark ? 'rgba(251, 188, 5, 0.15)' : 'linear-gradient(135deg, rgba(251, 188, 5, 0.16), rgba(249, 171, 0, 0.06))';
+      statusBanner.style.borderColor = dark ? 'rgba(253, 214, 99, 0.35)' : 'rgba(251, 188, 5, 0.35)';
+      statusBanner.style.color = dark ? '#fdd663' : '#b06000';
+    } else if (tone === 'blue') {
+      statusBanner.style.background = dark ? 'rgba(66, 133, 244, 0.16)' : 'linear-gradient(135deg, rgba(66, 133, 244, 0.12), rgba(155, 114, 203, 0.08))';
+      statusBanner.style.borderColor = dark ? 'rgba(138, 180, 248, 0.32)' : 'rgba(66, 133, 244, 0.25)';
+      statusBanner.style.color = dark ? '#8ab4f8' : '#1967d2';
+    } else {
+      statusBanner.style.background = dark ? 'rgba(52, 168, 83, 0.16)' : 'linear-gradient(135deg, rgba(52, 168, 83, 0.12), rgba(66, 133, 244, 0.08))';
+      statusBanner.style.borderColor = dark ? 'rgba(129, 201, 149, 0.32)' : 'rgba(52, 168, 83, 0.25)';
+      statusBanner.style.color = dark ? '#81c995' : '#137333';
+    }
+    statusIcon.innerHTML = iconSvg;
+    statusText.textContent = text;
+  }
+
+  async function update() {
+    try {
+      let q = '?conversationId=' + encodeURIComponent(convId);
+      if (manualLimit) q += '&limit=' + manualLimit;
+      const res = await fetch('/api/context' + q);
+      const data = await res.json();
+      if (!data) return;
+
+      if (lastConvId && lastConvId !== data.id) {
+        manualLimit = null;
+      }
+      lastConvId = data.id;
+
+      const activeScale = data.activeScale || '1m';
+      syncButtons(activeScale);
+
+      const isClaude = data.modelFamily === 'claude';
+      modelLabel.textContent = isClaude ? 'Claude' : 'Gemini';
+      modelLabel.classList.toggle('claude-text', isClaude);
+      modelIcon.innerHTML = isClaude ? CLAUDE_SVG : GEMINI_SVG;
+      limitVal.textContent = data.limitLabel || '1M';
+
+      const used = data.usedTokens || 0;
+      usedVal.textContent = formatK(used);
+      pctVal.textContent = data.pct + '%';
+      barFill.style.width = Math.min(100, data.pct) + '%';
+
+      exactUsed.textContent = used.toLocaleString();
+      exactRemain.textContent = (data.remainingTokens || 0).toLocaleString();
+
+      const compacts = data.compactionCount || 0;
+      exactCompacts.textContent = compacts + ' 次';
+
+      const dark = isDarkMode();
+      if (compacts >= 3) {
+        compactDot.style.background = '#ea4335';
+        exactCompacts.style.color = dark ? '#f28b82' : '#c5221f';
+      } else if (compacts === 2) {
+        compactDot.style.background = '#fbbc05';
+        exactCompacts.style.color = dark ? '#fdd663' : '#b06000';
+      } else {
+        compactDot.style.background = '#9b72cb';
+        exactCompacts.style.color = 'var(--fg)';
+      }
+
+      const warnPct = activeScale === '1m' ? 50 : 60;
+      const dangerPct = activeScale === '1m' ? 80 : 85;
+      if (data.pct < warnPct) {
+        pctVal.style.background = dark ? 'rgba(138, 180, 248, 0.16)' : 'rgba(66, 133, 244, 0.12)';
+        pctVal.style.color = dark ? '#8ab4f8' : '#1a73e8';
+        barFill.style.background = 'linear-gradient(90deg, #4285f4 0%, #34a853 35%, #fbbc05 70%, #9b72cb 100%)';
+        barFill.style.boxShadow = '0 0 14px rgba(66, 133, 244, 0.42)';
+      } else if (data.pct < dangerPct) {
+        pctVal.style.background = dark ? 'rgba(253, 214, 99, 0.16)' : 'rgba(251, 188, 5, 0.18)';
+        pctVal.style.color = dark ? '#fdd663' : '#b06000';
+        barFill.style.background = 'linear-gradient(90deg, #fbbc05 0%, #fa7b17 55%, #ea4335 100%)';
+        barFill.style.boxShadow = '0 0 14px rgba(251, 188, 5, 0.45)';
+      } else {
+        pctVal.style.background = dark ? 'rgba(242, 139, 130, 0.18)' : 'rgba(234, 67, 53, 0.14)';
+        pctVal.style.color = dark ? '#f28b82' : '#c5221f';
+        barFill.style.background = 'linear-gradient(90deg, #ea4335 0%, #d93025 50%, #ff5252 100%)';
+        barFill.style.boxShadow = '0 0 14px rgba(234, 67, 53, 0.5)';
+      }
+
+      if (compacts >= 3) {
+        applyBanner('red', ICON_WARN, '已经历 ' + compacts + ' 次自动压缩，记忆衰减严重，建议开新对话');
+      } else if (compacts === 2) {
+        applyBanner('amber', ICON_WARN, '已经历 2 次自动压缩，建议收尾当前任务后开新对话');
+      } else if (activeScale === '1m' && data.pct >= 80) {
+        applyBanner('red', ICON_WARN, '已超 800k，接近 1M 上限，随时可能触发压缩');
+      } else if (activeScale === '1m' && data.pct >= 50) {
+        applyBanner('amber', ICON_INFO, '已过 500k 参考线，可按需输入 /compact 整理记忆');
+      } else if (activeScale !== '1m' && data.pct >= 88) {
+        applyBanner('red', ICON_WARN, '接近 ' + data.limitLabel + ' 刻度上限，可切回 1M 或使用 /compact');
+      } else if (activeScale !== '1m' && data.pct >= 70) {
+        applyBanner('amber', ICON_INFO, '当前刻度已消耗超 70%，可提前输入 /compact');
+      } else if (compacts === 1) {
+        applyBanner('blue', ICON_INFO, '已经历 1 次压缩，当前上下文状态良好');
+      } else {
+        applyBanner('green', ICON_CHECK, '记忆完整无损，空间非常充裕');
+      }
+    } catch (e) {}
+  }
+
+  modelIcon.innerHTML = GEMINI_SVG;
+  statusIcon.innerHTML = ICON_CHECK;
+  update();
+  setInterval(update, 1500);
+</script>
+</body>
+</html>
