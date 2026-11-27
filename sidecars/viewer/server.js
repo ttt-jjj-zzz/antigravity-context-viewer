@@ -7,6 +7,12 @@ const url = require('url');
 const brainDir = path.join(os.homedir(), '.gemini', 'antigravity', 'brain');
 const port = Number(process.env.ANTIGRAVITY_SIDECAR_WEB_PORT || 0) || 38290;
 
+const SCALE_CONFIG = {
+  '1m': { limit: 1000000, label: '1M' },
+  '500k': { limit: 500000, label: '500k' },
+  '200k': { limit: 200000, label: '200k' }
+};
+
 function listAllConversations() {
   if (!fs.existsSync(brainDir)) return [];
   try {
@@ -45,11 +51,12 @@ function getConversationData(targetId, overrideLimit) {
     return {
       id: null,
       usedTokens: 0,
-      totalLimit: 250000,
-      limitLabel: '250k',
-      modelName: 'Gemini 3.8 Flash',
+      totalLimit: 1000000,
+      limitLabel: '1M',
+      activeScale: '1m',
+      modelName: 'Gemini 4 Hydrogen',
       pct: 0,
-      remainingTokens: 250000,
+      remainingTokens: 1000000,
       compactionCount: 0
     };
   }
@@ -64,9 +71,8 @@ function getConversationData(targetId, overrideLimit) {
 
   let latestInput = 0;
   let latestCache = 0;
-  let modelName = 'Gemini 3.8 Flash';
-  let defaultLimit = 250000;
-  let defaultLabel = '250k';
+  let modelName = 'Gemini 4 Hydrogen';
+  let defaultScale = '1m';
   let compactionCount = 0;
 
   try {
@@ -81,16 +87,16 @@ function getConversationData(targetId, overrideLimit) {
         if (s.type === 'CHECKPOINT' && s.source === 'SYSTEM') {
           compactionCount++;
         }
-        // Only inspect explicit user settings changes for model detection
-        if (s.content && typeof s.content === 'string' && s.content.includes('USER_SETTINGS_CHANGE')) {
-          if (s.content.includes('Claude') || s.content.includes('claude')) {
-            modelName = 'Claude 3.5';
-            defaultLimit = 200000;
-            defaultLabel = '200k';
-          } else if (s.content.includes('Gemini') || s.content.includes('gemini')) {
-            modelName = 'Gemini 3.8 Flash';
-            defaultLimit = 250000;
-            defaultLabel = '250k';
+        // Only inspect explicit USER_INPUT settings changes for model detection
+        if (s.type === 'USER_INPUT' && s.content && typeof s.content === 'string') {
+          const idx = s.content.indexOf('<USER_SETTINGS_CHANGE>');
+          if (idx !== -1) {
+            const block = s.content.slice(idx);
+            const m = block.match(/changed setting `Model Selection` from .*? to ([^.\r\n]+)/i);
+            if (m && m[1]) {
+              modelName = m[1].trim();
+              defaultScale = /claude/i.test(modelName) ? '200k' : '1m';
+            }
           }
         }
         if (s.input_tokens || s.cache_read_tokens) {
@@ -101,22 +107,9 @@ function getConversationData(targetId, overrideLimit) {
     }
   } catch (e) {}
 
-  let totalLimit = defaultLimit;
-  let limitLabel = defaultLabel;
-
-  if (overrideLimit === '200k') {
-    totalLimit = 200000;
-    limitLabel = '200k';
-    modelName = 'Claude (200k)';
-  } else if (overrideLimit === '1m' || overrideLimit === '1M') {
-    totalLimit = 1000000;
-    limitLabel = '1M';
-    modelName = 'Gemini (1M 上限)';
-  } else if (overrideLimit === '250k') {
-    totalLimit = 250000;
-    limitLabel = '250k';
-    modelName = 'Gemini (250k 压缩线)';
-  }
+  const normOverride = overrideLimit ? overrideLimit.toLowerCase() : '';
+  const activeScale = SCALE_CONFIG[normOverride] ? normOverride : defaultScale;
+  const { limit: totalLimit, label: limitLabel } = SCALE_CONFIG[activeScale];
 
   const usedTokens = latestInput + latestCache;
   const pct = Math.min(100, Math.round((usedTokens / totalLimit) * 1000) / 10);
@@ -127,6 +120,7 @@ function getConversationData(targetId, overrideLimit) {
     usedTokens,
     totalLimit,
     limitLabel,
+    activeScale,
     modelName,
     pct,
     remainingTokens,
@@ -195,6 +189,8 @@ function getHtml() {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
   }
   .model-pill {
     font-size: 13px;
@@ -297,6 +293,16 @@ function getHtml() {
     border-radius: 8px;
     transition: width 0.4s ease, background 0.3s;
   }
+  .bar-marker {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: rgba(100, 116, 139, 0.55);
+    pointer-events: none;
+    display: block;
+  }
 
   /* Detail line */
   .detail-row {
@@ -331,48 +337,49 @@ function getHtml() {
   <div class="header-row">
     <div class="model-pill">
       <span>🛰️</span>
-      <span id="modelLabel">Gemini 3.8 Flash</span>
+      <span id="modelLabel">Gemini 4 Hydrogen</span>
     </div>
     <div class="compact-pill" id="compactPill">
       <span>🔄</span>
-      <span id="compactCountText">未发生压缩 (0次)</span>
+      <span id="compactCountText">记忆未压缩 (0次)</span>
     </div>
   </div>
 
-  <!-- Scale switcher: 250k (Compaction Line) / 1M (Model Limit) / 200k (Claude) -->
+  <!-- Scale switcher: 1M (Default) / 500k / 200k -->
   <div class="limit-bar-row">
-    <span class="limit-label-hint">监控尺度:</span>
+    <span class="limit-label-hint">上限刻度:</span>
     <div class="limit-switch">
-      <button class="switch-btn active" id="btn250k" onclick="setLimit('250k')">250k 压缩线</button>
-      <button class="switch-btn" id="btn1M" onclick="setLimit('1m')">1M 上限</button>
+      <button class="switch-btn active" id="btn1M" onclick="setLimit('1m')">1M 上限</button>
+      <button class="switch-btn" id="btn500k" onclick="setLimit('500k')">500k</button>
       <button class="switch-btn" id="btn200k" onclick="setLimit('200k')">200k</button>
     </div>
   </div>
 
-  <!-- Big Numbers: 70.8k / 250k    28.3% -->
+  <!-- Big Numbers: 436.4k / 1M    43.6% -->
   <div class="stat-row">
     <div class="used-display">
       <span class="used-val" id="usedVal">0k</span>
-      <span class="total-val">/ <span id="limitVal">250k</span></span>
+      <span class="total-val">/ <span id="limitVal">1M</span></span>
     </div>
     <div class="pct-tag" id="pctVal">0%</div>
   </div>
 
-  <!-- Progress bar -->
+  <!-- Progress bar (with 500k midpoint marker when in 1M mode) -->
   <div class="bar-wrapper">
     <div class="bar-fill" id="barFill"></div>
+    <div class="bar-marker" id="barMarker" title="500k 参考线"></div>
   </div>
 
   <!-- Exact details -->
   <div class="detail-row">
     <span>已用: <strong id="exactUsed">0</strong></span>
-    <span>剩余: <strong id="exactRemain">250,000</strong> (<span id="remainPct">100%</span>)</span>
+    <span>剩余: <strong id="exactRemain">1,000,000</strong> (<span id="remainPct">100%</span>)</span>
     <span>已压缩: <strong id="exactCompacts">0 次</strong></span>
   </div>
 
   <!-- Status banner -->
   <div class="status-cue" id="statusCue">
-    🟢 空间充裕，记忆完整无损（0次压缩）
+    🟢 空间充裕，记忆完整无损（未压缩）
   </div>
 </div>
 
@@ -388,7 +395,8 @@ function getHtml() {
 
   const urlParams = new URLSearchParams(window.location.search);
   const convId = urlParams.get('conversationId') || 'auto';
-  let currentLimit = '250k'; // Default to 250k compaction line for accurate warning
+  let manualLimit = null; // Auto-match detected model (1M for Gemini, 200k for Claude) unless clicked
+  let lastConvId = null;
 
   const modelLabel = document.getElementById('modelLabel');
   const compactPill = document.getElementById('compactPill');
@@ -397,21 +405,27 @@ function getHtml() {
   const limitVal = document.getElementById('limitVal');
   const pctVal = document.getElementById('pctVal');
   const barFill = document.getElementById('barFill');
+  const barMarker = document.getElementById('barMarker');
   const exactUsed = document.getElementById('exactUsed');
   const exactRemain = document.getElementById('exactRemain');
   const remainPct = document.getElementById('remainPct');
   const exactCompacts = document.getElementById('exactCompacts');
   const statusCue = document.getElementById('statusCue');
-  const btn250k = document.getElementById('btn250k');
   const btn1M = document.getElementById('btn1M');
+  const btn500k = document.getElementById('btn500k');
   const btn200k = document.getElementById('btn200k');
 
   function setLimit(lim) {
-    currentLimit = lim;
-    btn250k.classList.toggle('active', lim === '250k');
-    btn1M.classList.toggle('active', lim === '1m');
-    btn200k.classList.toggle('active', lim === '200k');
+    manualLimit = lim;
+    syncButtons(lim);
     update();
+  }
+
+  function syncButtons(activeScale) {
+    btn1M.classList.toggle('active', activeScale === '1m');
+    btn500k.classList.toggle('active', activeScale === '500k');
+    btn200k.classList.toggle('active', activeScale === '200k');
+    barMarker.style.display = activeScale === '1m' ? 'block' : 'none';
   }
 
   function formatK(n) {
@@ -423,19 +437,28 @@ function getHtml() {
   async function update() {
     try {
       let q = '?conversationId=' + encodeURIComponent(convId);
-      if (currentLimit) q += '&limit=' + currentLimit;
+      if (manualLimit) q += '&limit=' + manualLimit;
       const res = await fetch('/api/context' + q);
       const data = await res.json();
       if (!data) return;
 
-      modelLabel.textContent = data.modelName || 'Gemini 3.8 Flash';
-      limitVal.textContent = data.limitLabel || '250k';
+      if (lastConvId && lastConvId !== data.id) {
+        manualLimit = null;
+      }
+      lastConvId = data.id;
 
-      usedVal.textContent = formatK(data.usedTokens || 0);
+      const activeScale = data.activeScale || '1m';
+      syncButtons(activeScale);
+
+      modelLabel.textContent = data.modelName || 'Gemini 4 Hydrogen';
+      limitVal.textContent = data.limitLabel || '1M';
+
+      const used = data.usedTokens || 0;
+      usedVal.textContent = formatK(used);
       pctVal.textContent = data.pct + '%';
       barFill.style.width = Math.min(100, data.pct) + '%';
 
-      exactUsed.textContent = (data.usedTokens || 0).toLocaleString();
+      exactUsed.textContent = used.toLocaleString();
       exactRemain.textContent = (data.remainingTokens || 0).toLocaleString();
       remainPct.textContent = (100 - data.pct).toFixed(1) + '%';
 
@@ -461,11 +484,13 @@ function getHtml() {
         compactPill.style.color = 'var(--red)';
       }
 
-      // Progress bar colors
-      if (data.pct < 60) {
+      // Progress bar colors (1M turns amber at 50%/500k and red at 80%/800k)
+      const warnPct = activeScale === '1m' ? 50 : 60;
+      const dangerPct = activeScale === '1m' ? 80 : 85;
+      if (data.pct < warnPct) {
         pctVal.style.color = 'var(--green)';
         barFill.style.background = 'var(--green)';
-      } else if (data.pct < 85) {
+      } else if (data.pct < dangerPct) {
         pctVal.style.color = 'var(--yellow)';
         barFill.style.background = 'var(--yellow)';
       } else {
@@ -484,12 +509,22 @@ function getHtml() {
         statusCue.style.background = 'rgba(217, 119, 6, 0.08)';
         statusCue.style.borderColor = 'rgba(217, 119, 6, 0.2)';
         statusCue.textContent = '🟠 已经历 2 次压缩（记忆进入衰退期），建议收尾当前任务并开新对话';
-      } else if (data.pct >= 88) {
+      } else if (activeScale === '1m' && data.pct >= 80) {
         statusCue.style.color = 'var(--red)';
         statusCue.style.background = 'rgba(220, 38, 38, 0.08)';
         statusCue.style.borderColor = 'rgba(220, 38, 38, 0.2)';
-        statusCue.textContent = '🔴 距 250k 压缩警戒线不足 12%，即将触发自动压缩';
-      } else if (data.pct >= 70) {
+        statusCue.textContent = '🔴 已超 800k，接近 1M 上限，随时可能触发压缩或响应变慢';
+      } else if (activeScale === '1m' && data.pct >= 50) {
+        statusCue.style.color = 'var(--yellow)';
+        statusCue.style.background = 'rgba(217, 119, 6, 0.08)';
+        statusCue.style.borderColor = 'rgba(217, 119, 6, 0.2)';
+        statusCue.textContent = '🟡 已过 500k 参考线，注意延迟与客户端自动压缩，可按需 /compact';
+      } else if (activeScale !== '1m' && data.pct >= 88) {
+        statusCue.style.color = 'var(--red)';
+        statusCue.style.background = 'rgba(220, 38, 38, 0.08)';
+        statusCue.style.borderColor = 'rgba(220, 38, 38, 0.2)';
+        statusCue.textContent = '🔴 接近 ' + data.limitLabel + ' 刻度上限，可切回 1M 或提前 /compact';
+      } else if (activeScale !== '1m' && data.pct >= 70) {
         statusCue.style.color = 'var(--yellow)';
         statusCue.style.background = 'rgba(217, 119, 6, 0.08)';
         statusCue.style.borderColor = 'rgba(217, 119, 6, 0.2)';
